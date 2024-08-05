@@ -1,251 +1,290 @@
-const express = require('express');
-const fetch = require('node-fetch');
-const apicache = require('apicache');
-const cache = apicache.middleware
-const app = express();
-const bodyParser = require('body-parser');
-var lastRec = 0,
-    query = "";
+/**
+ * @fileoverview Main server file for the Enhanced ORCID Institutional Dashboard
+ * @author Original: Owen Stephens, Enhancements: [Your Name]
+ * @requires express
+ * @requires node-fetch
+ * @requires apicache
+ * @requires express-rate-limit
+ * @requires dotenv
+ * @requires path
+ */
 
+require('dotenv').config();
+const express = require('express');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const apicache = require('apicache');
+const rateLimit = require('express-rate-limit');
+const path = require('path');
+const { enrichWithRepositoryData, enrichWorkWithDOIMetadata } = require('./dataEnrichment');
+const { analyzeCollaborationPatterns, identifyKeyResearchers } = require('./analytics');
+const APIIntegration = require('./APIIntegration');
+const Exporter = require('./Exporter');
+
+const app = express();
+const cache = apicache.middleware;
+const apiIntegration = new APIIntegration();
+
+/**
+ * @constant {string} ORCID_API_URL - Base URL for the ORCID API
+ */
+const ORCID_API_URL = process.env.ORCID_API_URL || 'https://pub.orcid.org/v3.0';
+
+/**
+ * @constant {number} PAGE_SIZE - Number of results to fetch per page
+ */
+const PAGE_SIZE = parseInt(process.env.PAGE_SIZE) || 1000;
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 app.use(express.static('public'));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'orcid-dashboard-frontend/build')));
 app.set('view engine', 'ejs');
 
-app.get('/', cache('2 hours'), function (req, res) {
-  queryparts = [];
-  if (typeof req.query.ringgold !== "undefined") {
-    req.query.ringgold.split("|").forEach(function(q) {
-      queryparts.push("ringgold-org-id:" + q)
-    });
-  }
-  if (typeof req.query.grid !== "undefined") {
-    req.query.grid.split("|").forEach(function(q) {
-      queryparts.push("grid-org-id:" + q)
-    });
-  }
-  if (typeof req.query.emaildomain !== "undefined") {
-    req.query.emaildomain.split("|").forEach(function(q) {
-      queryparts.push("email:*@" + q)
-    });
-  }
-  if (typeof req.query.orgname !== "undefined") {
-    req.query.orgname.split("|").forEach(function(q) {
-      queryparts.push("affiliation-org-name:%22" + encodeURI(q) + "%22")
-    });
-  }
-  query = queryparts.join("%20OR%20")
-  if (query.length > 0) {
-    r = 0
-    //the public API limits the "start" parameter to 10000
-    //by starting with 999 we get the maximum number of responses (11000)
-    //
-    // ORCiD API Search query params:
-    // q = query
-    // start = first record to return (defaults to 1)
-    // rows = number of records to return (defaults to 100, max 1000)
-    var u = 'https://pub.orcid.org/v3.0/search/?q='+
-             query +
-             '&rows='+r;
-    console.log(u);
-    //to do local testing uncomment the next line
-    //var u = "http://localhost:4000/orcid-search-response"
-    var options = {
-      url: u,
-      headers: {
-      'Accept': 'application/vnd.orcid+json'
-      }
-    };
-    lastRec = 0;
-    var n = 0;
-    
-    //set default variables
-   var orcidsList = [];
-   var orcidsListFetches = [];
-  
-  fetch(options.url, {headers: options.headers})
-    .then(response => {
-      return response.json();
-    })
-    .then(info => {
-      pageSize = 1000
-      n = info["num-found"];
-      console.log("Query found " + n + " ORCiD IDs");
-      numberPages = Math.ceil(n/pageSize);
-      console.log("With a page size of ", pageSize, " that is ", numberPages, " pages.")
-      for(i = 1; i-1 < numberPages; i++) {
-        if(i===1) {
-          ps = pageSize-1;
-        } else {
-          ps = pageSize;
-        }
-        url = 'https://pub.orcid.org/v3.0/search/?q='+
-                 query +
-                 '&start='+lastRec+
-                 '&rows='+ps;
-        //If you want to see which URLs are being fetched, uncomment the next line
-        console.log(url);
-        orcidsListFetches.push(
-          fetch(url, {headers: options.headers})
-           .then(response => {
-             return response.json();
-           })
-           .then(data => {
-             for (var k in data["result"]) {
-               orcidsList.push(data["result"][k]["orcid-identifier"]);
-             }
-           })
-           .catch((error) => {
-             console.error('Error:', error);
-           })
-         );
-         lastRec = lastRec+ps;
-      }
-      Promise.all(orcidsListFetches).then(function () {
-        console.log("Length of orcidsList: ",orcidsList.length);
-        res.render('index', {count: n, orcids: orcidsList, itemCount: n, error: null});
-      });
-    })
-    .catch((error) => {
-      console.error('Error:', error);
-    });
-  } else {
-    res.render("index", {count: null, orcids: [], itemCount: 0, error: null});
-  }
-})
-
-app.get('/orcid-search-response', function(req, res) {
-  res.render('orcid-search-response');
+/**
+ * Rate limiter to prevent API abuse
+ */
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
 });
 
-app.get('/orcid/:orcid', cache('1 day'), function (req, res) {
-  var orcidJson;
-  if (typeof req.params["orcid"] !== "undefined") {
-    
-    // ORCiD API Search query params:
-    // q = query
-    // start = first record to return (defaults to 1)
-    // rows = number of records to return (defaults to 100, max 200)
-    var u = 'https://pub.orcid.org/v3.0/'+req.params["orcid"];
-    //to do local testing uncomment the next line
-    //var u = "http://localhost:4000/orcid-search-response"
-    var options = {
-      url: u,
-      headers: {
-      'Accept': 'application/vnd.orcid+json'
-      }
-    };
-    fetch(options.url, {headers: options.headers})
-      .then(response => {
-        return response.json();
-      })
-      .then(orcidJson => {
-        response = {}
-        // LAST UPDATED
-        lastUpdated = getNested(orcidJson, "history", "last-modified-date", "value");
-        if(typeof lastUpdated != undefined || lastUpdated != null) {
-          var ud = new Date(lastUpdated).toISOString();
-          response.lastUpdated = ud.substring(0,10);
-        } else {
-          response.lastUpdated = "No last updated date";
-        }
-        // NAME
-        givenName = getNested(orcidJson, "person","name","given-names","value");
-        familyName = getNested(orcidJson, "person","name","family-name","value");
-        name = [givenName, familyName].join(' ');
-        if(name.trim().length === 0) {
-          name = "Anonymous"
-        }
-        response.name = name
-        // EMPLOYMENTS
-        employments = new Array();
-        employmentAffiliationGroups = getNested(orcidJson, "activities-summary","employments","affiliation-group")
-        employmentAffiliationGroups.forEach(function(ag){
-          ag["summaries"].forEach(function(emp){
-            var org = getNested(emp, "employment-summary","organization","name");
-            if(typeof org === undefined || org === null) {
-              org =  "No organization name";
-            }
-            var role = getNested(emp, "employment-summary", "role-title");
-            if(typeof role === undefined || role === null) {
-              role = "No job title";
-            } 
-            var startYear = getNested(emp, "employment-summary", "start-date", "year", "value")
-            if(typeof startYear === undefined || startYear === null) {
-              startYear = "*";
-            }
-            var endYear = getNested(emp, "employment-summary", "end-date", "year", "value")
-            if(typeof endYear === undefined || endYear === null) {
-              endYear = "*";
-            }
-            employments.push(org + ": " + role + " " +
-            startYear+" -> "+endYear)
-          });
-        });
-        response.employments = employments;
-        // EDUCATIONS
-        educations = new Array();
-        educationAffiliationGroups = getNested(orcidJson, "activities-summary","educations","affiliation-group")
-        educationAffiliationGroups.forEach(function(ag){
-          ag["summaries"].forEach(function(emp){
-            var org = getNested(emp, "education-summary","organization","name");
-            if(typeof org === undefined || org === null) {
-              org =  "No organization name";
-            }
-            var role = getNested(emp, "education-summary", "role-title");
-            if(typeof role === undefined || role === null) {
-              role = "No course of study";
-            } 
-            var startYear = getNested(emp, "education-summary", "start-date", "year", "value")
-            if(typeof startYear === undefined || startYear === null) {
-              startYear = "*";
-            }
-            var endYear = getNested(emp, "education-summary", "end-date", "year", "value")
-            if(typeof endYear === undefined || endYear === null) {
-              endYear = "*";
-            }
-            educations.push(org + ": " + role + " " +
-            startYear+" -> "+endYear)
-          });
-        });
-        response.educations = educations
-        // EMAILS
-        emails = new Array();
-        emailList = getNested(orcidJson, "person", "emails", "email")
-        if(typeof emailList != undefined && emailList != null) {
-          emailList.forEach(function(em){
-            emails.push(getNested(em, "email"));
-          });
-        }
-        response.emails = emails
-        // IDS
-        ids = new Array();
-        idList = getNested(orcidJson, "person", "external-identifiers", "external-identifier")
-        if(typeof idList != undefined && idList != null) {
-          idList.forEach(function(id){
-            ids.push(getNested(id, "external-id-type") + ": "+getNested(id, "external-id-value"));
-          });
-        }
-        response.ids = ids
-        // WORK COUNT
-        workCount = getNested(orcidJson, "activities-summary", "works", "group", "length");
-        response.workCount = workCount;
-        res.send(response);
-      })
-      .catch((error) => {
-        console.error('Error:', error);
-      });
-  } else {
-    res.send({error: 'message'})
+// Apply rate limiter to all requests
+app.use(limiter);
+
+
+
+async function fetchWithRetry(url, options = {}, retries = 5, backoff = 300) {
+  try {
+    const response = await fetch(url, options);
+    if (response.ok) {
+      return response;
+    }
+    if (response.status === 503) {
+      console.log(`Service Unavailable (503) for ${url}. Retrying after ${backoff}ms`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    throw new Error(`HTTP error! status: ${response.status}`);
+  } catch (error) {
+    if (retries > 0) {
+      console.log(`Retrying fetch for ${url}. Attempts left: ${retries - 1}`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    throw error;
   }
-});
-
-app.listen(process.env.PORT || 4000, function () {
-  console.log('Example app listening on port ' + (process.env.PORT || 4000));
-})
-
-// Handy function to check all levels of a path in some json from
-// https://stackoverflow.com/questions/2631001/test-for-existence-of-nested-javascript-object-key
-// Returns undefined if the path doesn't exist in the JSON
-function getNested(obj, ...args) {
-  return args.reduce((obj, path) => obj && obj[path], obj)
 }
+
+/**
+ * Main search route
+ * @name get/api/search
+ * @function
+ * @async
+ * @param {string} req.query - Query parameters for the search
+ * @param {string} req.query.ringgold - Ringgold ID for institution search
+ * @param {string} req.query.grid - GRID ID for institution search
+ * @param {string} req.query.emaildomain - Email domain for affiliation search
+ * @param {string} req.query.orgname - Organization name for search
+ * @returns {Object} JSON response with ORCID data and analytics
+ */
+app.get('/api/search', cache('2 hours'), async function (req, res) {
+  try {
+    const query = buildQuery(req.query);
+    if (query.length > 0) {
+      const orcidsList = await fetchOrcids(query);
+      console.log(`Found ${orcidsList.length} ORCID IDs`);
+      
+      const enrichedData = await Promise.all(orcidsList.map(async (orcidData) => {
+        if (!orcidData || !orcidData['orcid-identifier'] || !orcidData['orcid-identifier'].path) {
+          return null;
+        }
+        try {
+          const orcid = orcidData['orcid-identifier'].path;
+          console.log(`Processing ORCID: ${orcid}`);
+          let orcidProfile = await fetchOrcidProfile(orcid);
+          
+          try {
+            orcidProfile = await enrichWithRepositoryData(orcidProfile, process.env.REPOSITORY_API_URL);
+          } catch (repoError) {
+            console.error(`Error enriching with repository data for ORCID ${orcid}:`, repoError);
+            // Continue with the original profile if repository enrichment fails
+          }
+          
+          if (orcidProfile.works) {
+            orcidProfile.works = await Promise.all(orcidProfile.works.map(async (work) => {
+              try {
+                return await enrichWorkWithDOIMetadata(work);
+              } catch (doiError) {
+                console.error(`Error enriching work with DOI metadata for ORCID ${orcid}:`, doiError);
+                return work;
+              }
+            }));
+          } else {
+            orcidProfile.works = [];
+          }
+          
+          return await apiIntegration.enrichOrcidData(orcidProfile);
+        } catch (error) {
+          console.error(`Error processing data for ORCID ${orcidData['orcid-identifier'].path}:`, error);
+          return null;
+        }
+      }));
+
+      const validEnrichedData = enrichedData.filter(data => data !== null);
+      
+      const collaborationPatterns = analyzeCollaborationPatterns(validEnrichedData);
+      const keyResearchers = identifyKeyResearchers(validEnrichedData).slice(0, 10);
+      
+      res.json({
+        orcidData: validEnrichedData,
+        institutionName: req.query.orgname || 'Your Institution',
+        analytics: {
+          collaborationPatterns,
+          keyResearchers
+        }
+      });
+    } else {
+      res.status(400).json({ error: 'Invalid query parameters' });
+    }
+  } catch (error) {
+    console.error('Error in search route:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Builds a query string from request parameters
+ * @function
+ * @param {Object} params - Request query parameters
+ * @returns {string} Constructed query string
+ */
+function buildQuery(params) {
+  const queryParts = [];
+  if (params.ringgold) {
+    queryParts.push(...params.ringgold.split("|").map(q => `ringgold-org-id:${q}`));
+  }
+  if (params.grid) {
+    queryParts.push(...params.grid.split("|").map(q => `grid-org-id:${q}`));
+  }
+  if (params.emaildomain) {
+    queryParts.push(...params.emaildomain.split("|").map(q => `email:*@${q}`));
+  }
+  if (params.orgname) {
+    queryParts.push(...params.orgname.split("|").map(q => `affiliation-org-name:%22${encodeURI(q)}%22`));
+  }
+  return queryParts.join("%20OR%20");
+}
+
+/**
+ * Fetches ORCID profiles based on the query
+ * @async
+ * @function
+ * @param {string} query - The search query
+ * @returns {Array} Array of ORCID profiles
+ */
+async function fetchOrcids(query) {
+  let orcidsList = [];
+  let start = 0;
+  let total;
+
+  do {
+    const url = `${ORCID_API_URL}/search/?q=${query}&start=${start}&rows=${PAGE_SIZE}`;
+    console.log(`Fetching ORCID IDs from: ${url}`);
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/vnd.orcid+json' }
+    });
+    const data = await response.json();
+    total = data['num-found'];
+    console.log(`Found ${data.result.length} ORCID IDs in this batch. Total: ${total}`);
+    orcidsList.push(...data.result);
+    start += PAGE_SIZE;
+  } while (start < total && start < 11000);
+
+  return orcidsList;
+}
+
+/**
+ * Fetches a single ORCID profile
+ * @async
+ * @function
+ * @param {string} orcid - The ORCID identifier
+ * @returns {Object} ORCID profile data
+ */
+async function fetchOrcidProfile(orcid) {
+  const url = `${ORCID_API_URL}/${orcid}`;
+  console.log(`Fetching ORCID profile from: ${url}`);
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/vnd.orcid+json' }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.json();
+}
+
+app.get('/api/export/:format', async (req, res) => {
+  try {
+    const query = buildQuery(req.query);
+    const orcidsList = await fetchOrcids(query);
+    const enrichedData = await Promise.all(orcidsList.map(async orcidData => {
+      const orcid = orcidData['orcid-identifier'].path;
+      const orcidProfile = await fetchOrcidProfile(orcid);
+      return apiIntegration.enrichOrcidData(orcidProfile);
+    }));
+
+    const validEnrichedData = enrichedData.filter(data => data !== null);
+
+    const exporter = new Exporter(validEnrichedData);
+
+    
+    const { format } = req.params;
+    let result;
+    let contentType;
+    let fileExtension;
+
+    switch (format) {
+      case 'csv':
+        result = await exporter.toCSV();
+        contentType = 'text/csv';
+        fileExtension = 'csv';
+        break;
+      case 'excel':
+        result = await exporter.toExcel();
+        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        fileExtension = 'xlsx';
+        break;
+      case 'json':
+        result = exporter.toJSON();
+        contentType = 'application/json';
+        fileExtension = 'json';
+        break;
+      case 'pdf':
+        result = await exporter.toPDF();
+        contentType = 'application/pdf';
+        fileExtension = 'pdf';
+        break;
+      default:
+        throw new Error('Unsupported format');
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=orcid_data.${fileExtension}`);
+    res.send(result);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).send('Export failed: ' + error.message);
+  }
+});
+
+
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'orcid-dashboard-frontend/build', 'index.html'));
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
