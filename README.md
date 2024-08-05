@@ -1,46 +1,67 @@
 # ORCID Institutional Dashboard
 
-This application is an enhanced version of a nodejs app for searching and visualizing ORCID data affiliated with specific organizations or linked to specific email domains.
+## Overview
 
-## Origin
+The ORCID Institutional Dashboard is a powerful tool for visualizing and analyzing ORCID data affiliated with specific organizations or linked to specific email domains. This application provides insights into researcher collaborations, work distributions, and institutional connections.
 
-This project is based on the original [orcid-node](https://github.com/ostephens/orcid-node) repository created by Owen Stephens. It has been significantly enhanced with additional features and improvements.
+## Features
 
-## New Features
-
-- Data enrichment from institutional repositories and DOI metadata
-- Advanced analytics including collaboration patterns and key researcher identification
-- Enhanced visualization of researcher collaboration networks
-- Detailed ORCID profile information display
-- Multiple export formats (CSV, Excel, JSON, PDF)
+- Search for ORCID profiles by institution, email domain, or custom criteria
+- Visualize researcher collaboration networks
+- Display work distribution by type and year
+- Show top authors and their connections
+- Calculate and display collaboration ratios (internal vs external)
+- Export data in various formats (CSV, Excel, JSON, PDF, BibTeX, RIS)
+- Scalable caching solution for handling large datasets
 
 ## Installation
 
-1. Clone the repository
-2. Run `npm install` to install dependencies
-3. Create a `.env` file and set your environment variables (e.g., PORT, ORCID_API_URL, REPOSITORY_API_URL)
-4. Run `npm start` to start the server
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/orcid-institutional-dashboard.git
+   cd orcid-institutional-dashboard
+   ```
+
+2. Install dependencies:
+   ```
+   npm install
+   ```
+
+3. Set up environment variables:
+   Create a `.env` file in the root directory and add the following:
+   ```
+   PORT=4000
+   ORCID_API_URL=https://pub.orcid.org/v3.0
+   CROSSREF_API_URL=https://api.crossref.org/works
+   DATACITE_API_URL=https://api.datacite.org/dois
+   DB_URI=your_database_connection_string
+   ```
+
+4. Start the server:
+   ```
+   npm start
+   ```
 
 ## Usage
 
-1. Select a region (UK or US) and choose an institution from the dropdown, or use the custom query option to search by email domain or affiliation.
-2. View the generated visualizations, data tables, and analytics.
-3. Use the export buttons to download the data in your preferred format.
+1. Open a web browser and navigate to `http://localhost:4000` (or the port you specified in the .env file).
+2. Use the search interface to query ORCID data by institution, email domain, or custom criteria.
+3. Explore the visualizations and data presented in the dashboard.
+4. Export data in your preferred format using the export buttons.
 
-## Components
+## API Endpoints
 
-- `server.js`: Main server file handling API requests and data processing
-- `App.js`: React frontend component
-- `APIIntegration.js`: Handles integration with external APIs (ORCID, ROR, DataCite, Crossref)
-- `Exporter.js`: Manages data export in various formats
-- `dataEnrichment.js`: Functions for enriching ORCID data
-- `analytics.js`: Advanced analytics functions
+- `GET /api/search`: Search for ORCID profiles
+- `GET /api/export/:format`: Export data in various formats (csv, excel, json, pdf, bibtex, ris)
+- `GET /api/clear-cache`: Clear the server-side cache
 
-## Limitations and Considerations
+## Technologies Used
 
-- The ORCID public API has a limit of 11000 results per query
-- Data accuracy depends on the completeness and up-to-date status of ORCID profiles
-- High volume of API calls may be required for large institutions
+- Backend: Node.js, Express.js
+- Frontend: React.js
+- Data Visualization: recharts, react-force-graph
+- APIs: ORCID, Crossref, DataCite
+- Database: SQLite/MongoDB (for caching)
 
 ## Contributing
 
@@ -48,8 +69,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the Apache 2.0 License.
+This project is licensed under the MIT License.
 
 ## Acknowledgements
 
-Special thanks to Owen Stephens for the original orcid-node project, and to all contributors who have helped enhance this tool.
+This project is based on the original [orcid-node](https://github.com/ostephens/orcid-node) repository created by Owen Stephens. It has been significantly enhanced with additional features and improvements.
+
+## Support
+
+For issues, questions, or contributions, please open an issue in the GitHub repository or contact the maintainers.

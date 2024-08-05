@@ -1,68 +1,50 @@
+/**
+ * @file App.js
+ * @description Main component for the ORCID Institutional Dashboard application.
+ * @author [Your Name]
+ * @version 1.0.0
+ */
+
 import React, { useState, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import CombinedSearch from './CombinedSearch';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import ForceGraph2D from 'react-force-graph-2d';
 import Modal from 'react-modal';
-import { US_INSTITUTIONS, UK_INSTITUTIONS } from './institutions';
 import './App.css';
 
 // Set the app element for react-modal
-Modal.setAppElement('#root');  // Assuming your main div has id="root"
+Modal.setAppElement('#root');
 
-
+/**
+ * Main App component for the ORCID Institutional Dashboard.
+ * @returns {React.Component} The rendered App component.
+ */
 function App() {
+  // State declarations
   const [orcidData, setOrcidData] = useState([]);
   const [institutionName, setInstitutionName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [region, setRegion] = useState('uk');
-  const [selectedInstitution, setSelectedInstitution] = useState('');
-  const [email, setEmail] = useState('');
-  const [affiliation, setAffiliation] = useState('');
   const [errors, setErrors] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState(null);
 
-  const clearCache = async () => {
-    try {
-      const response = await fetch('/api/clear-cache');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      alert(data.message);
-    } catch (e) {
-      alert(`Failed to clear cache: ${e.message}`);
-    }
-  };
-
-
-  const fetchData = async () => {
+  /**
+   * Handles the search operation.
+   * @async
+   * @param {string} query - The search query string.
+   */
+  const handleSearch = async (query) => {
     setLoading(true);
     setError(null);
-    setErrors([]);
     try {
-      let queryParams = new URLSearchParams();
-      if (selectedInstitution) {
-        queryParams.append('ringgold', selectedInstitution);
-      }
-      if (email) {
-        queryParams.append('emaildomain', email);
-      }
-      if (affiliation) {
-        queryParams.append('orgname', affiliation);
-      }
-
-      const response = await fetch(`/api/search?${queryParams.toString()}`);
+      const response = await fetch(`/api/search?${query}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      if (data.orcidData.length === 0) {
-        setError('No data found for this query');
-      } else {
-        setOrcidData(data.orcidData);
-        setErrors(data.errors || []);
-        setInstitutionName(data.institutionName);
-      }
+      setOrcidData(data.orcidData);
+      setInstitutionName(data.institutionName);
+      setErrors(data.errors || []);
     } catch (e) {
       setError(`Failed to fetch data: ${e.message}`);
     } finally {
@@ -70,24 +52,31 @@ function App() {
     }
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    fetchData();
-  };
+  /**
+   * Clears the server-side cache.
+   * @async
+   */
+const clearCache = async () => {
+  try {
+    const response = await fetch('/api/clear-cache');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    alert(data.message);
+  } catch (e) {
+    alert(`Failed to clear cache: ${e.message}`);
+  }
+};
 
+  /**
+   * Handles data export in various formats.
+   * @async
+   * @param {string} format - The export format (csv, excel, json, pdf).
+   */
   const handleExport = async (format) => {
     try {
-      let queryParams = new URLSearchParams();
-      if (selectedInstitution) {
-        queryParams.append('ringgold', selectedInstitution);
-      }
-      if (email) {
-        queryParams.append('emaildomain', email);
-      }
-      if (affiliation) {
-        queryParams.append('orgname', affiliation);
-      }
-
+      const queryParams = new URLSearchParams(window.location.search);
       const response = await fetch(`/api/export/${format}?${queryParams.toString()}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -106,174 +95,215 @@ function App() {
     }
   };
 
+  /**
+   * Memoized calculation of chart data for work types.
+   * @type {Array}
+   */
   const chartData = useMemo(() => {
     if (!orcidData || orcidData.length === 0) return [];
-    return Object.entries(
-      orcidData.reduce((acc, profile) => {
-        if (profile.works) {
-          profile.works.forEach(work => {
-            acc[work.type] = (acc[work.type] || 0) + 1;
-          });
-        }
-        return acc;
-      }, {})
-    ).map(([name, value]) => ({ name, value }));
+    const workTypes = orcidData.reduce((acc, profile) => {
+      (profile.works || []).forEach(work => {
+        acc[work.type] = (acc[work.type] || 0) + 1;
+      });
+      return acc;
+    }, {});
+    return Object.entries(workTypes).map(([name, value]) => ({ name, value }));
   }, [orcidData]);
 
-
-  const graphData = useMemo(() => {
+  /**
+   * Memoized calculation of network data for the collaboration graph.
+   * @type {Object}
+   */
+  const networkData = useMemo(() => {
     if (!orcidData || orcidData.length === 0) return { nodes: [], links: [] };
-    return {
-      nodes: orcidData.map(profile => ({ id: profile.orcid, name: profile.name })),
-      links: orcidData.flatMap(profile => 
-        profile.works ? profile.works.map(work => ({
-          source: profile.orcid,
-          target: work.collaborators ? work.collaborators[0] : profile.orcid,
-        })) : []
-      )
-    };
+
+    const nodes = orcidData.map(profile => ({
+      id: profile.orcid,
+      name: profile.name || 'Unknown',
+      val: (profile.works || []).length,
+      color: (profile.employments || []).some(emp => emp.includes(institutionName)) ? '#ff0000' : '#00ff00'
+    }));
+
+    const links = [];
+    const externalLinks = {};
+
+    orcidData.forEach(profile => {
+      (profile.works || []).forEach(work => {
+        const collaborators = Array.isArray(work.collaborators) ? work.collaborators : [];
+        collaborators.forEach(collaborator => {
+          if (orcidData.some(p => p.orcid === collaborator)) {
+            links.push({ 
+              source: profile.orcid, 
+              target: collaborator,
+              value: 1
+            });
+          } else {
+            externalLinks[profile.orcid] = externalLinks[profile.orcid] || new Set();
+            externalLinks[profile.orcid].add(collaborator);
+          }
+        });
+      });
+    });
+
+    Object.entries(externalLinks).forEach(([orcid, collaborators]) => {
+      const externalNodeId = `external_${orcid}`;
+      nodes.push({
+        id: externalNodeId,
+        name: 'External Collaborators',
+        val: collaborators.size,
+        color: '#0000ff'
+      });
+      links.push({
+        source: orcid,
+        target: externalNodeId,
+        value: collaborators.size,
+        label: `${collaborators.size} external collaborators`
+      });
+    });
+
+    return { nodes, links };
+  }, [orcidData, institutionName]);
+
+  /**
+   * Memoized calculation of collaboration ratio.
+   * @type {number}
+   */
+  const collaborationRatio = useMemo(() => {
+    if (!orcidData || orcidData.length === 0) return 0;
+
+    let internalCollaborations = 0;
+    let externalCollaborations = 0;
+
+    orcidData.forEach(profile => {
+      (profile.works || []).forEach(work => {
+        (work.collaborators || []).forEach(collaborator => {
+          if (orcidData.some(p => p.orcid === collaborator)) {
+            internalCollaborations++;
+          } else {
+            externalCollaborations++;
+          }
+        });
+      });
+    });
+
+    return internalCollaborations === 0 ? 0 : externalCollaborations / internalCollaborations;
   }, [orcidData]);
 
-const networkData = useMemo(() => {
-  if (!orcidData || orcidData.length === 0) return { nodes: [], links: [] };
 
-  const nodes = orcidData.map(profile => ({
-    id: profile.orcid,
-    name: profile.name || 'Unknown',
-    val: (profile.works || []).length,
-    color: (profile.employments || []).some(emp => emp.includes(institutionName)) ? '#ff0000' : '#00ff00'
-  }));
+  const [chartType, setChartType] = useState('workTypes');
 
-  const links = [];
-  const externalLinks = {};
-
-  orcidData.forEach(profile => {
-    (profile.works || []).forEach(work => {
-      // Ensure collaborators is an array
-      const collaborators = Array.isArray(work.collaborators) ? work.collaborators : [];
-      collaborators.forEach(collaborator => {
-        if (orcidData.some(p => p.orcid === collaborator)) {
-          // Internal collaboration
-          links.push({ 
-            source: profile.orcid, 
-            target: collaborator,
-            value: 1 // You can adjust this value based on the number of collaborations
-          });
-        } else {
-          // External collaboration
-          externalLinks[profile.orcid] = externalLinks[profile.orcid] || new Set();
-          externalLinks[profile.orcid].add(collaborator);
-        }
+  const workTypes = useMemo(() => {
+    if (!orcidData || orcidData.length === 0) return [];
+    const types = orcidData.reduce((acc, profile) => {
+      (profile.works || []).forEach(work => {
+        acc[work.type] = (acc[work.type] || 0) + 1;
       });
-    });
-  });
+      return acc;
+    }, {});
+    return Object.entries(types).map(([name, value]) => ({ name, value }));
+  }, [orcidData]);
 
-  // Add external collaboration nodes and links
-  Object.entries(externalLinks).forEach(([orcid, collaborators]) => {
-    const externalNodeId = `external_${orcid}`;
-    nodes.push({
-      id: externalNodeId,
-      name: 'External Collaborators',
-      val: collaborators.size,
-      color: '#0000ff'
-    });
-    links.push({
-      source: orcid,
-      target: externalNodeId,
-      value: collaborators.size,
-      label: `${collaborators.size} external collaborators`
-    });
-  });
+  /**
+   * Memoized calculation of works by year.
+   * @type {Array}
+   */
+  const worksByYear = useMemo(() => {
+    if (!orcidData || orcidData.length === 0) return [];
 
-  return { nodes, links };
-}, [orcidData, institutionName]);
-
-const collaborationRatio = useMemo(() => {
-  if (!orcidData || orcidData.length === 0) return 0;
-
-  let internalCollaborations = 0;
-  let externalCollaborations = 0;
-
-  orcidData.forEach(profile => {
-    (profile.works || []).forEach(work => {
-      (work.collaborators || []).forEach(collaborator => {
-        if (orcidData.some(p => p.orcid === collaborator)) {
-          internalCollaborations++;
-        } else {
-          externalCollaborations++;
-        }
+    const workCounts = orcidData.reduce((acc, profile) => {
+      (profile.works || []).forEach(work => {
+        const year = work.year || 'Unknown';
+        acc[year] = (acc[year] || 0) + 1;
       });
-    });
-  });
+      return acc;
+    }, {});
 
-  return internalCollaborations === 0 ? 0 : externalCollaborations / internalCollaborations;
-}, [orcidData]);
+    return Object.entries(workCounts)
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => a.year === 'Unknown' ? 1 : b.year === 'Unknown' ? -1 : a.year - b.year);
+  }, [orcidData]);
 
-const worksByYear = useMemo(() => {
-  if (!orcidData || orcidData.length === 0) return [];
+  const topAuthors = useMemo(() => {
+    return orcidData
+      .map(profile => ({
+        name: profile.name,
+        works: profile.works.length
+      }))
+      .sort((a, b) => b.works - a.works)
+      .slice(0, 10);
+  }, [orcidData]);
 
-  const workCounts = {};
-  orcidData.forEach(profile => {
-    (profile.works || []).forEach(work => {
-      const year = work.year || 'Unknown';
-      workCounts[year] = (workCounts[year] || 0) + 1;
-    });
-  });
+  const authorConnections = useMemo(() => {
+    const connections = orcidData.map(profile => ({
+      name: profile.name,
+      connections: new Set(profile.works.flatMap(work => work.collaborators || [])).size
+    }));
+    return connections.sort((a, b) => b.connections - a.connections).slice(0, 10);
+  }, [orcidData]);
 
-  return Object.entries(workCounts)
-    .map(([year, count]) => ({ year, count }))
-    .sort((a, b) => a.year === 'Unknown' ? 1 : b.year === 'Unknown' ? -1 : a.year - b.year);
-}, [orcidData]);
+  const renderChart = () => {
+    switch (chartType) {
+      case 'workTypes':
+        return (
+          <PieChart width={400} height={400}>
+            <Pie data={workTypes} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={150} fill="#8884d8" label>
+              {workTypes.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={`#${Math.floor(Math.random()*16777215).toString(16)}`} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        );
+      case 'worksByYear':
+        return (
+          <BarChart data={worksByYear}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="year" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="count" fill="#8884d8" />
+          </BarChart>
+        );
+      case 'topAuthors':
+        return (
+          <BarChart data={topAuthors}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="works" fill="#82ca9d" />
+          </BarChart>
+        );
+      case 'authorConnections':
+        return (
+          <BarChart data={authorConnections}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="connections" fill="#8884d8" />
+          </BarChart>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="App">
-      <h1>ORCID Dashboard</h1>
-      
-      {loading && <div className="loading">Loading<span>.</span><span>.</span><span>.</span></div>}
-
-      {error && (
-        <div className="error-container">
-          <p className="error-message">{error}</p>
-          <button onClick={fetchData} className="retry-button">Retry</button>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <select value={region} onChange={(e) => setRegion(e.target.value)}>
-          <option value="uk">UK</option>
-          <option value="us">US</option>
-        </select>
-        <select 
-          value={selectedInstitution} 
-          onChange={(e) => setSelectedInstitution(e.target.value)}
-        >
-          <option value="">Select an institution</option>
-          {(region === 'uk' ? UK_INSTITUTIONS : US_INSTITUTIONS).map(inst => (
-            <option key={inst.ringgold} value={inst.ringgold}>{inst.name}</option>
-          ))}
-        </select>
-        <input
-          type="text"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email domain"
-        />
-        <input
-          type="text"
-          value={affiliation}
-          onChange={(e) => setAffiliation(e.target.value)}
-          placeholder="Affiliation"
-        />
-        <button type="submit">Search</button>
-      </form>
-
+      <h1>ORCID Institutional Dashboard</h1>
+      <CombinedSearch onSearch={handleSearch} />
       <button onClick={clearCache}>Clear Cache</button>
 
+      {loading && <div>Loading...</div>}
+      {error && <div>Error: {error}</div>}
 
-
-      {institutionName && (
-        <>
-          <h2>{institutionName}</h2>
+      {orcidData.length > 0 && (
+        <div>
           <div className="export-buttons">
             <button onClick={() => handleExport('csv')}>Export CSV</button>
             <button onClick={() => handleExport('excel')}>Export Excel</button>
@@ -297,17 +327,20 @@ const worksByYear = useMemo(() => {
 
           <h3>Collaboration Ratio (External/Internal): {collaborationRatio.toFixed(2)}</h3>
 
-          <h3>Works by Year</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={worksByYear}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="count" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
+      <div>
+        <h3>Dashboard</h3>
+        <select onChange={(e) => setChartType(e.target.value)}>
+          <option value="workTypes">Work Types</option>
+          <option value="worksByYear">Works by Year</option>
+          <option value="topAuthors">Top 10 Authors</option>
+          <option value="authorConnections">Top 10 Connected Authors</option>
+        </select>
+        <ResponsiveContainer width="100%" height={400}>
+          {renderChart()}
+        </ResponsiveContainer>
+      </div>
+
+
 
           <h3>ORCID Data</h3>
           <table>
@@ -359,7 +392,6 @@ const worksByYear = useMemo(() => {
             )}
           </Modal>
 
-
           {errors.length > 0 && (
             <div className="error-summary">
               <h3>Errors Encountered</h3>
@@ -371,7 +403,7 @@ const worksByYear = useMemo(() => {
               </ul>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

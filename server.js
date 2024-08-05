@@ -18,17 +18,36 @@ const { enrichWithRepositoryData, enrichWorkWithDOIMetadata } = require('./dataE
 const { analyzeCollaborationPatterns, identifyKeyResearchers } = require('./analytics');
 const APIIntegration = require('./APIIntegration');
 const Exporter = require('./Exporter');
+const fs = require('fs').promises;
 
-// Use global fetch if available, otherwise use a dynamic import for node-fetch
-const fetchImplementation = globalThis.fetch || (async (...args) => {
-  const { default: fetch } = await import('node-fetch');
-  return fetch(...args);
-});
+
+
+let fetchImplementation;
+
+if (typeof globalThis.fetch === 'function') {
+  fetchImplementation = globalThis.fetch;
+} else {
+  fetchImplementation = require('node-fetch');
+}
 
 const app = express();
 const cache = apicache.middleware;
 const apiIntegration = new APIIntegration();
 
+const CACHE_FILE = path.join(__dirname, 'orcid_cache.json');
+
+async function cacheData(data) {
+  await fs.writeFile(CACHE_FILE, JSON.stringify(data));
+}
+
+async function getCachedData() {
+  try {
+    const data = await fs.readFile(CACHE_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    return null;
+  }
+}
 
 /**
  * @constant {string} ORCID_API_URL - Base URL for the ORCID API
@@ -96,24 +115,29 @@ async function fetchWithRetry(url, options = {}, retries = 5, backoff = 300) {
 app.get('/api/search', cache('2 hours'), async function (req, res) {
   try {
     const query = buildQuery(req.query);
+    let data;
+    
     if (query.length > 0) {
       const orcidsList = await fetchOrcids(query);
       console.log(`Found ${orcidsList.length} ORCID IDs`);
       
       const enrichedData = await Promise.all(orcidsList.map(async (orcidData) => {
+
         if (!orcidData || !orcidData['orcid-identifier'] || !orcidData['orcid-identifier'].path) {
+          console.log(`Invalid ORCID data at index ${index}:`, orcidData);
           return null;
         }
         try {
           const orcid = orcidData['orcid-identifier'].path;
           console.log(`Processing ORCID: ${orcid}`);
           let orcidProfile = await fetchOrcidProfile(orcid);
+          console.log(`Fetched profile for ORCID: ${orcid}`);
           
           try {
             orcidProfile = await enrichWithRepositoryData(orcidProfile, process.env.REPOSITORY_API_URL);
+            console.log(`Enriched profile with repository data for ORCID: ${orcid}`);
           } catch (repoError) {
             console.error(`Error enriching with repository data for ORCID ${orcid}:`, repoError);
-            // Continue with the original profile if repository enrichment fails
           }
           
           if (orcidProfile.works) {
@@ -125,33 +149,37 @@ app.get('/api/search', cache('2 hours'), async function (req, res) {
                 return work;
               }
             }));
+            console.log(`Enriched works with DOI metadata for ORCID: ${orcid}`);
           } else {
             orcidProfile.works = [];
           }
           
-          return await apiIntegration.enrichOrcidData(orcidProfile);
+          const enrichedProfile = await apiIntegration.enrichOrcidData(orcidProfile);
+          console.log(`Completed processing for ORCID: ${orcid}`);
+          return enrichedProfile;
         } catch (error) {
           console.error(`Error processing data for ORCID ${orcidData['orcid-identifier'].path}:`, error);
           return null;
         }
       }));
-
+      
       const validEnrichedData = enrichedData.filter(data => data !== null);
+      console.log(`Successfully processed ${validEnrichedData.length} ORCID profiles`);
       
-      const collaborationPatterns = analyzeCollaborationPatterns(validEnrichedData);
-      const keyResearchers = identifyKeyResearchers(validEnrichedData).slice(0, 10);
-      
-      res.json({
+      data = {
         orcidData: validEnrichedData,
-        institutionName: req.query.orgname || 'Your Institution',
-        analytics: {
-          collaborationPatterns,
-          keyResearchers
-        }
-      });
+        institutionName: req.query.orgname || 'Your Institution'
+      };
+      
+      await cacheData(data);
     } else {
-      res.status(400).json({ error: 'Invalid query parameters' });
+      data = await getCachedData();
+      if (!data) {
+        return res.status(400).json({ error: 'No cached data available. Please perform a search first.' });
+      }
     }
+    
+    res.json(data);
   } catch (error) {
     console.error('Error in search route:', error);
     res.status(500).json({ error: error.message });
@@ -238,21 +266,32 @@ async function fetchOrcids(query) {
   return orcidsList;
 }
 
+async function fetchOrcidProfile(orcid) {
+  const url = `${ORCID_API_URL}/${orcid}`;
+  console.log(`Fetching ORCID profile from: ${url}`);
+  const response = await fetchImplementation(url, {
+    headers: { 'Accept': 'application/vnd.orcid+json' }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.json();
+}
+
+app.get('/api/clear-cache', (req, res) => {
+  apicache.clear();
+  res.json({ message: 'Cache cleared successfully' });
+});
+
 
 app.get('/api/export/:format', async (req, res) => {
   try {
-    const query = buildQuery(req.query);
-    const orcidsList = await fetchOrcids(query);
-    const enrichedData = await Promise.all(orcidsList.map(async orcidData => {
-      const orcid = orcidData['orcid-identifier'].path;
-      const orcidProfile = await fetchOrcidProfile(orcid);
-      return apiIntegration.enrichOrcidData(orcidProfile);
-    }));
+    const data = await getCachedData();
+    if (!data) {
+      return res.status(400).json({ error: 'No cached data available. Please perform a search first.' });
+    }
 
-    const validEnrichedData = enrichedData.filter(data => data !== null);
-
-    const exporter = new Exporter(validEnrichedData);
-
+    const exporter = new Exporter(data.orcidData);
     
     const { format } = req.params;
     let result;
@@ -280,9 +319,20 @@ app.get('/api/export/:format', async (req, res) => {
         contentType = 'application/pdf';
         fileExtension = 'pdf';
         break;
+      case 'bibtex':
+        result = exporter.toBibTeX();
+        contentType = 'application/x-bibtex';
+        fileExtension = 'bib';
+        break;
+      case 'ris':
+        result = exporter.toRIS();
+        contentType = 'application/x-research-info-systems';
+        fileExtension = 'ris';
+        break;
       default:
         throw new Error('Unsupported format');
     }
+
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename=orcid_data.${fileExtension}`);
@@ -292,7 +342,6 @@ app.get('/api/export/:format', async (req, res) => {
     res.status(500).send('Export failed: ' + error.message);
   }
 });
-
 
 
 // The "catchall" handler: for any request that doesn't

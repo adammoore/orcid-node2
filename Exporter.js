@@ -72,6 +72,38 @@ class Exporter {
       });
     });
   }
+
+  toBibTeX() {
+    let bibtex = '';
+    this.data.forEach(profile => {
+      profile.works.forEach(work => {
+        bibtex += `@article{${work.doi || 'unknown'},\n`;
+        bibtex += `  title = {${work.title}},\n`;
+        bibtex += `  author = {${profile.name}},\n`;
+        bibtex += `  year = {${work.year}},\n`;
+        bibtex += `  journal = {${work.journal || 'Unknown'}},\n`;
+        bibtex += `  doi = {${work.doi || 'Unknown'}}\n`;
+        bibtex += '}\n\n';
+      });
+    });
+    return bibtex;
+  }
+
+  toRIS() {
+    let ris = '';
+    this.data.forEach(profile => {
+      profile.works.forEach(work => {
+        ris += 'TY  - JOUR\n';
+        ris += `TI  - ${work.title}\n`;
+        ris += `AU  - ${profile.name}\n`;
+        ris += `PY  - ${work.year}\n`;
+        ris += `JO  - ${work.journal || 'Unknown'}\n`;
+        ris += `DO  - ${work.doi || 'Unknown'}\n`;
+        ris += 'ER  - \n\n';
+      });
+    });
+    return ris;
+  }
 }
 
 module.exports = Exporter;

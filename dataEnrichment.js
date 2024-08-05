@@ -1,10 +1,14 @@
-const { OAIPMHClient } = require('oai-pmh');
+const oaiPmhModule = require('oai-pmh');
+const OAIPMHClient = oaiPmhModule.OAIPMHClient;
 
-// Use global fetch if available, otherwise use a dynamic import for node-fetch
-const fetchImplementation = globalThis.fetch || async (...args) => {
-  const { default: fetch } = await import('node-fetch');
-  return fetch(...args);
-};
+
+let fetchImplementation;
+
+if (typeof globalThis.fetch === 'function') {
+  fetchImplementation = globalThis.fetch;
+} else {
+  fetchImplementation = require('node-fetch');
+}
 
 async function enrichWithRepositoryData(profile, repositoryUrl) {
   if (!repositoryUrl) {
@@ -14,7 +18,7 @@ async function enrichWithRepositoryData(profile, repositoryUrl) {
 
   try {
     const client = new OAIPMHClient(repositoryUrl);
-    
+
     // Fetch records for the given ORCID
     const records = await client.listRecords({
       metadataPrefix: 'oai_dc',
