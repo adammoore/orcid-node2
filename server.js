@@ -11,7 +11,6 @@
 
 require('dotenv').config();
 const express = require('express');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const apicache = require('apicache');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
@@ -20,9 +19,16 @@ const { analyzeCollaborationPatterns, identifyKeyResearchers } = require('./anal
 const APIIntegration = require('./APIIntegration');
 const Exporter = require('./Exporter');
 
+// Use global fetch if available, otherwise use a dynamic import for node-fetch
+const fetchImplementation = globalThis.fetch || (async (...args) => {
+  const { default: fetch } = await import('node-fetch');
+  return fetch(...args);
+});
+
 const app = express();
 const cache = apicache.middleware;
 const apiIntegration = new APIIntegration();
+
 
 /**
  * @constant {string} ORCID_API_URL - Base URL for the ORCID API
@@ -190,7 +196,7 @@ async function fetchOrcids(query) {
   do {
     const url = `${ORCID_API_URL}/search/?q=${query}&start=${start}&rows=${PAGE_SIZE}`;
     console.log(`Fetching ORCID IDs from: ${url}`);
-    const response = await fetch(url, {
+    const response = await fetchImplementation(url, {
       headers: { 'Accept': 'application/vnd.orcid+json' }
     });
     const data = await response.json();
@@ -203,6 +209,7 @@ async function fetchOrcids(query) {
   return orcidsList;
 }
 
+
 /**
  * Fetches a single ORCID profile
  * @async
@@ -210,17 +217,27 @@ async function fetchOrcids(query) {
  * @param {string} orcid - The ORCID identifier
  * @returns {Object} ORCID profile data
  */
-async function fetchOrcidProfile(orcid) {
-  const url = `${ORCID_API_URL}/${orcid}`;
-  console.log(`Fetching ORCID profile from: ${url}`);
-  const response = await fetch(url, {
-    headers: { 'Accept': 'application/vnd.orcid+json' }
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-  return response.json();
+async function fetchOrcids(query) {
+  let orcidsList = [];
+  let start = 0;
+  let total;
+
+  do {
+    const url = `${ORCID_API_URL}/search/?q=${query}&start=${start}&rows=${PAGE_SIZE}`;
+    console.log(`Fetching ORCID IDs from: ${url}`);
+    const response = await fetchImplementation(url, {
+      headers: { 'Accept': 'application/vnd.orcid+json' }
+    });
+    const data = await response.json();
+    total = data['num-found'];
+    console.log(`Found ${data.result.length} ORCID IDs in this batch. Total: ${total}`);
+    orcidsList.push(...data.result);
+    start += PAGE_SIZE;
+  } while (start < total && start < 11000);
+
+  return orcidsList;
 }
+
 
 app.get('/api/export/:format', async (req, res) => {
   try {

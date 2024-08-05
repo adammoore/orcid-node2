@@ -1,18 +1,10 @@
-/**
- * @fileoverview Data enrichment functions for ORCID profiles
- * @module dataEnrichment
- */
-
-const fetch = require('node-fetch');
-
-/**
- * Enrich ORCID profile with institutional repository data
- * @async
- * @param {Object} profile - ORCID profile object
- * @param {string} repositoryUrl - URL of the institutional repository API
- * @returns {Object} Enriched ORCID profile
- */
 const { OAIPMHClient } = require('oai-pmh');
+
+// Use global fetch if available, otherwise use a dynamic import for node-fetch
+const fetchImplementation = globalThis.fetch || async (...args) => {
+  const { default: fetch } = await import('node-fetch');
+  return fetch(...args);
+};
 
 async function enrichWithRepositoryData(profile, repositoryUrl) {
   if (!repositoryUrl) {
@@ -53,18 +45,11 @@ async function enrichWithRepositoryData(profile, repositoryUrl) {
   }
 }
 
-
-/**
- * Enrich work entries with DOI metadata
- * @async
- * @param {Object} work - Work object from ORCID profile
- * @returns {Object} Enriched work object
- */
 async function enrichWorkWithDOIMetadata(work) {
   if (!work.doi) return work;
 
   try {
-    const response = await fetch(`https://api.crossref.org/works/${work.doi}`);
+    const response = await fetchImplementation(`https://api.crossref.org/works/${work.doi}`);
     const metadata = await response.json();
 
     // Merge metadata with work data
