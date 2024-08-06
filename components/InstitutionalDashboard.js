@@ -1,37 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { ForceGraph2D } from 'react-force-graph';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+
 const InstitutionalDashboard = ({ orcidData, institutionName }) => {
-  const [internalWorks, setInternalWorks] = useState(0);
-  const [externalWorks, setExternalWorks] = useState(0);
-  const [interconnectivityData, setInterconnectivityData] = useState({ nodes: [], links: [] });
+  const [workDistribution, setWorkDistribution] = useState([]);
+  const [collaborationNetwork, setCollaborationNetwork] = useState({ nodes: [], links: [] });
+  const [topResearchers, setTopResearchers] = useState([]);
 
   useEffect(() => {
-    calculateWorks();
-    calculateInterconnectivity();
-  }, [orcidData]);
+    calculateWorkDistribution();
+    calculateCollaborationNetwork();
+    calculateTopResearchers();
+  }, [orcidData, institutionName]);
 
-  const calculateWorks = () => {
-    let internal = 0;
-    let external = 0;
-
-    orcidData.forEach(researcher => {
+  const calculateWorkDistribution = () => {
+    const distribution = orcidData.reduce((acc, researcher) => {
       researcher.works.forEach(work => {
-        if (work.institutions.includes(institutionName)) {
-          internal++;
-        } else {
-          external++;
-        }
+        const type = work.type || 'Unknown';
+        acc[type] = (acc[type] || 0) + 1;
       });
-    });
+      return acc;
+    }, {});
 
-    setInternalWorks(internal);
-    setExternalWorks(external);
+    setWorkDistribution(Object.entries(distribution).map(([name, value]) => ({ name, value })));
   };
 
-  const calculateInterconnectivity = () => {
+  const calculateCollaborationNetwork = () => {
     const nodes = orcidData.map(researcher => ({
       id: researcher.orcid,
       name: researcher.name,
@@ -39,13 +36,11 @@ const InstitutionalDashboard = ({ orcidData, institutionName }) => {
     }));
 
     const links = [];
-
     orcidData.forEach((researcher1, index1) => {
       orcidData.slice(index1 + 1).forEach(researcher2 => {
         const commonWorks = researcher1.works.filter(work1 =>
           researcher2.works.some(work2 => work1.doi === work2.doi)
         );
-
         if (commonWorks.length > 0) {
           links.push({
             source: researcher1.orcid,
@@ -56,31 +51,63 @@ const InstitutionalDashboard = ({ orcidData, institutionName }) => {
       });
     });
 
-    setInterconnectivityData({ nodes, links });
+    setCollaborationNetwork({ nodes, links });
+  };
+
+  const calculateTopResearchers = () => {
+    const researchers = orcidData.map(researcher => ({
+      name: researcher.name,
+      works: researcher.works.length,
+      citations: researcher.works.reduce((acc, work) => acc + (work.citationCount || 0), 0)
+    }));
+
+    setTopResearchers(researchers.sort((a, b) => b.works - a.works).slice(0, 10));
   };
 
   return (
-    <div>
+    <div className="institutional-dashboard">
       <Card>
         <CardHeader>Institutional Dashboard for {institutionName}</CardHeader>
         <CardContent>
-          <h2>Work Distribution</h2>
+          <h2>Work Distribution by Type</h2>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={[{ name: 'Works', internal: internalWorks, external: externalWorks }]}>
+            <PieChart>
+              <Pie
+                data={workDistribution}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+              >
+                {workDistribution.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+
+          <h2>Top 10 Researchers by Work Count</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={topResearchers}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="internal" fill="#8884d8" name="Internal Works" />
-              <Bar dataKey="external" fill="#82ca9d" name="External Works" />
+              <Bar dataKey="works" fill="#8884d8" name="Number of Works" />
+              <Bar dataKey="citations" fill="#82ca9d" name="Number of Citations" />
             </BarChart>
           </ResponsiveContainer>
 
-          <h2>Researcher Interconnectivity</h2>
+          <h2>Researcher Collaboration Network</h2>
           <div style={{ height: '600px' }}>
             <ForceGraph2D
-              graphData={interconnectivityData}
+              graphData={collaborationNetwork}
               nodeLabel="name"
               nodeVal="val"
               linkWidth={link => Math.sqrt(link.value)}
