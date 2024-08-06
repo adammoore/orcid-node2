@@ -10,12 +10,14 @@ const express = require('express');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const Exporter = require('./Exporter');
-const { fetchOrcidData, enrichOrcidData } = require('./dataEnrichment');
+const enrichOrcidData  = require('./dataEnrichment');
 const APIIntegration = require('./APIIntegration');
 const analytics = require('./analytics');
+const fetchOrcidData = require('./fetchOrcidData');
+
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 // SQLite database setup
 const db = new sqlite3.Database('./orcid_cache.sqlite', (err) => {
@@ -33,7 +35,9 @@ const db = new sqlite3.Database('./orcid_cache.sqlite', (err) => {
 
 const apiIntegration = new APIIntegration();
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, 'orcid-dashboard-frontend/build')));
+
 app.use(express.json());
 
 /**
@@ -44,19 +48,25 @@ app.use(express.json());
 app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q;
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
     let data = await getCachedData(query);
 
     if (!data) {
-      const rawData = await fetchOrcidData(query);
-      data = await Promise.all(rawData.map(enrichOrcidData));
+      data = await fetchOrcidData(query);
+      if (data.length === 0) {
+        console.log(`No results found for query: ${query}`);
+        return res.status(404).json({ message: 'No results found' });
+      }
       await cacheData(query, data);
     }
 
-    const enrichedData = await Promise.all(data.map(apiIntegration.enrichOrcidData));
-    res.json(enrichedData);
+    res.json(data);
   } catch (error) {
     console.error('Search error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'An error occurred while fetching ORCID data' });
   }
 });
 
@@ -144,7 +154,7 @@ app.get('/api/analytics', async (req, res) => {
 });
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'orcid-dashboard-frontend/build', 'index.html'));
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

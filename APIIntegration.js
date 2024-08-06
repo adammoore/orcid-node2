@@ -85,6 +85,28 @@ class APIIntegration {
     return enrichedData;
   }
 
+  async getEnrichedWorks(orcidProfile) {
+    const works = this.getWorks(orcidProfile);
+    return Promise.all(works.map(async (work) => {
+      if (work.doi) {
+        try {
+          const [crossrefData, dataCiteData] = await Promise.all([
+            this.fetchCrossrefWorks(work.doi),
+            this.fetchDataCiteDOIs(work.doi)
+          ]);
+          return {
+            ...work,
+            crossrefData,
+            dataCiteData
+          };
+        } catch (error) {
+          console.error(`Error enriching work ${work.doi}:`, error);
+        }
+      }
+      return work;
+    }))};
+  
+
   getName(profile) {
     return profile.person?.name?.['given-names']?.value + ' ' + profile.person?.name?.['family-name']?.value || 'N/A';
   }

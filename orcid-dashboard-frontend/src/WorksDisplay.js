@@ -4,7 +4,7 @@
  * @requires react
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { exportToBibTeX, exportToRIS } from './exportUtils';
 
 /**

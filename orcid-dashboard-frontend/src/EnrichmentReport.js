@@ -1,5 +1,3 @@
-import React from 'react';
-
 function EnrichmentReport({ orcidData }) {
   const missingDOIs = orcidData.reduce((acc, author) => {
     const missingWorks = author.works.filter(work => !work.doi).length;

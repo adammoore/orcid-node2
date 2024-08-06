@@ -1,4 +1,3 @@
-import React from 'react';
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip } from 'recharts';
 
 function AuthorNetworkVisualization({ orcidData }) {

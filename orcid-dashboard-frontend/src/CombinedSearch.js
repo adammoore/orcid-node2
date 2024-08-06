@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { US_INSTITUTIONS, UK_INSTITUTIONS } from './institutions';
 
 const CombinedSearch = ({ onSearch }) => {
