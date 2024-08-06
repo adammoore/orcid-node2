@@ -8,83 +8,104 @@
 import React, { useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from 'react-query';
 import CombinedSearch from './CombinedSearch';
-import InstitutionalDashboard from './components/InstitutionalDashboard'; // Update this path
+import InstitutionalDashboard from './components/InstitutionalDashboard';
 import AuthorModal from './AuthorModal';
 import EnrichmentReport from './EnrichmentReport';
 import Loading from './Loading';
 import { exportToFile } from './exportUtils';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import swal from 'sweetalert';
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import './App.css';
 
-function App() {
-  const [orcidData, setOrcidData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+// Create a client for React Query
+const queryClient = new QueryClient();
+
+/**
+ * AppContent component containing the main application logic
+ */
+function AppContent() {
+  // State for search query and selected author
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedAuthor, setSelectedAuthor] = useState(null);
-  const [institutionName, setInstitutionName] = useState('');
+
+  // Use React Query to fetch ORCID data
+  const { data: orcidData, error, isLoading } = useQuery(
+    ['orcidData', searchQuery],
+    () => fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()),
+    { enabled: !!searchQuery } // Only run the query if there's a search query
+  );
+
+  // Extract institution name from the search query
+  const institutionName = searchQuery.match(/orgname=([^&]+)/)?.[1] || '';
 
   /**
-   * Fetches ORCID data based on the provided query
+   * Handle search query submission
    * @param {string} query - The search query
    */
-  const fetchData = useCallback(async (query) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setOrcidData(data);
-      const institutionMatch = query.match(/orgname=([^&]+)/);
-      setInstitutionName(institutionMatch ? decodeURIComponent(institutionMatch[1]) : '');
-    } catch (e) {
-      setError(`Failed to fetch data: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+  };
 
   /**
-   * Handles the export of data in various formats
-   * @param {string} format - The export format (e.g., 'csv', 'json')
+   * Handle data export
+   * @param {string} format - The export format
    */
-  const handleExport = useCallback((format) => {
+  const handleExport = (format) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `orcid_export_${timestamp}`;
     exportToFile(orcidData, format, filename);
-  }, [orcidData]);
+  };
 
   return (
     <div className="App">
       <h1 className="text-2xl font-bold mb-4">ORCID Institutional Dashboard</h1>
-      <CombinedSearch onSearch={fetchData} />
-      {loading && <Loading message="Fetching ORCID data..." />}
+
+      {/* Search component */}
+      <CombinedSearch onSearch={handleSearch} />
+
+      {/* Loading indicator */}
+      {isLoading && <Loading message="Fetching ORCID data..." />}
+
+      {/* Error display */}
       {error && (
-        <Alert variant="destructive">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        swal('Error!',error.message,'success')
       )}
-      {orcidData.length > 0 && (
+
+      {/* Main content when data is loaded */}
+      {orcidData && orcidData.length > 0 && (
         <>
+          {/* Export buttons */}
           <div className="export-buttons">
-            {['csv', 'excel', 'json', 'pdf', 'bibtex', 'ris'].map(format => (
-              <button key={format} onClick={() => handleExport(format)}>
-                Export {format.toUpperCase()}
-              </button>
-            ))}
+            <TooltipProvider>
+              {['csv', 'excel', 'json', 'pdf', 'bibtex', 'ris'].map(format => (
+                <Tooltip key={format}>
+                  <TooltipTrigger asChild>
+                    <button onClick={() => handleExport(format)} className="btn-export">
+                      Export {format.toUpperCase()}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Export data in {format.toUpperCase()} format</p>
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </TooltipProvider>
           </div>
+
+          {/* Dashboard component */}
           <InstitutionalDashboard orcidData={orcidData} institutionName={institutionName} />
+
+          {/* Enrichment report */}
           <EnrichmentReport orcidData={orcidData} />
-          <table>
+
+          {/* Author list */}
+          <table className="w-full mt-4">
             <thead>
               <tr>
-                <th>ORCID</th>
-                <th>Name</th>
-                <th>Works</th>
+                <th className="text-left">ORCID</th>
+                <th className="text-left">Name</th>
+                <th className="text-left">Works</th>
               </tr>
             </thead>
             <tbody>
@@ -93,7 +114,7 @@ function App() {
                   <td>{author.orcid}</td>
                   <td>{author.name}</td>
                   <td>
-                    <button onClick={() => setSelectedAuthor(author)}>
+                    <button onClick={() => setSelectedAuthor(author)} className="text-blue-500 hover:underline">
                       View {author.works.length} works
                     </button>
                   </td>
@@ -101,6 +122,8 @@ function App() {
               ))}
             </tbody>
           </table>
+
+          {/* Author modal */}
           {selectedAuthor && (
             <AuthorModal
               author={selectedAuthor}
@@ -110,6 +133,18 @@ function App() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Main App component
+ * Wraps the AppContent with QueryClientProvider for React Query
+ */
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
+    </QueryClientProvider>
   );
 }
 
