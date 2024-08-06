@@ -1,16 +1,21 @@
 /**
  * @file App.js
  * @description Main component for the ORCID Institutional Dashboard application.
- * @author [Your Name]
  * @version 1.0.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import CombinedSearch from './CombinedSearch';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import ForceGraph2D from 'react-force-graph-2d';
 import Modal from 'react-modal';
 import './App.css';
+import WorksDisplay from './WorksDisplay';
+import { exportToFile } from './exportUtils';
+import AuthorModal from './AuthorModal';
+import EnrichmentReport from './EnrichmentReport';
+
+
 
 // Set the app element for react-modal
 Modal.setAppElement('#root');
@@ -27,6 +32,14 @@ function App() {
   const [error, setError] = useState(null);
   const [errors, setErrors] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState(null);
+  const [selectedAuthor, setSelectedAuthor] = useState(null);
+
+  const handleExport = (format) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `orcid_export_${timestamp}`;
+    exportToFile(orcidData, format, filename);
+  };
+
 
   /**
    * Handles the search operation.
@@ -56,25 +69,24 @@ function App() {
    * Clears the server-side cache.
    * @async
    */
-const clearCache = async () => {
-  try {
-    const response = await fetch('/api/clear-cache');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  const clearCache = async () => {
+    try {
+      const response = await fetch('/api/clear-cache');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      alert(data.message);
+    } catch (e) {
+      alert(`Failed to clear cache: ${e.message}`);
     }
-    const data = await response.json();
-    alert(data.message);
-  } catch (e) {
-    alert(`Failed to clear cache: ${e.message}`);
-  }
-};
+  };
 
   /**
    * Handles data export in various formats.
    * @async
    * @param {string} format - The export format (csv, excel, json, pdf).
-   */
-  const handleExport = async (format) => {
+ // const handleExport = async (format) => {
     try {
       const queryParams = new URLSearchParams(window.location.search);
       const response = await fetch(`/api/export/${format}?${queryParams.toString()}`);
@@ -94,7 +106,26 @@ const clearCache = async () => {
       setError(`Failed to export data: ${e.message}`);
     }
   };
-
+*/
+  /**
+   * @function fetchData
+   * @async
+   * @param {string} query - Search query
+   */
+  const fetchData = async (query) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      setOrcidData(data);
+    } catch (e) {
+      setError(`Failed to fetch data: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
   /**
    * Memoized calculation of chart data for work types.
    * @type {Array}
@@ -132,8 +163,8 @@ const clearCache = async () => {
         const collaborators = Array.isArray(work.collaborators) ? work.collaborators : [];
         collaborators.forEach(collaborator => {
           if (orcidData.some(p => p.orcid === collaborator)) {
-            links.push({ 
-              source: profile.orcid, 
+            links.push({
+              source: profile.orcid,
               target: collaborator,
               value: 1
             });
@@ -189,9 +220,10 @@ const clearCache = async () => {
     return internalCollaborations === 0 ? 0 : externalCollaborations / internalCollaborations;
   }, [orcidData]);
 
-
+  // State and logic to handle the type of chart displayed
   const [chartType, setChartType] = useState('workTypes');
 
+  // Memoized calculation of work types for the pie chart
   const workTypes = useMemo(() => {
     if (!orcidData || orcidData.length === 0) return [];
     const types = orcidData.reduce((acc, profile) => {
@@ -223,6 +255,7 @@ const clearCache = async () => {
       .sort((a, b) => a.year === 'Unknown' ? 1 : b.year === 'Unknown' ? -1 : a.year - b.year);
   }, [orcidData]);
 
+  // Memoized calculation of top authors
   const topAuthors = useMemo(() => {
     return orcidData
       .map(profile => ({
@@ -233,6 +266,7 @@ const clearCache = async () => {
       .slice(0, 10);
   }, [orcidData]);
 
+  // Memoized calculation of author connections
   const authorConnections = useMemo(() => {
     const connections = orcidData.map(profile => ({
       name: profile.name,
@@ -241,6 +275,7 @@ const clearCache = async () => {
     return connections.sort((a, b) => b.connections - a.connections).slice(0, 10);
   }, [orcidData]);
 
+  // Renders the appropriate chart based on the selected chart type
   const renderChart = () => {
     switch (chartType) {
       case 'workTypes':
@@ -248,7 +283,7 @@ const clearCache = async () => {
           <PieChart width={400} height={400}>
             <Pie data={workTypes} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={150} fill="#8884d8" label>
               {workTypes.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={`#${Math.floor(Math.random()*16777215).toString(16)}`} />
+                <Cell key={`cell-${index}`} fill={`#${Math.floor(Math.random() * 16777215).toString(16)}`} />
               ))}
             </Pie>
             <Tooltip />
@@ -303,110 +338,82 @@ const clearCache = async () => {
       {error && <div>Error: {error}</div>}
 
       {orcidData.length > 0 && (
-        <div>
+        <>
           <div className="export-buttons">
-            <button onClick={() => handleExport('csv')}>Export CSV</button>
-            <button onClick={() => handleExport('excel')}>Export Excel</button>
-            <button onClick={() => handleExport('json')}>Export JSON</button>
-            <button onClick={() => handleExport('pdf')}>Export PDF</button>
+            {['csv', 'excel', 'json', 'pdf', 'bibtex', 'ris'].map(format => (
+              <button key={format} onClick={() => handleExport(format)}>
+                Export {format.toUpperCase()}
+              </button>
+            ))}
           </div>
 
           <h2>{institutionName} ORCID Dashboard</h2>
 
           <h3>Researcher Collaboration Network</h3>
-          <div style={{ height: '600px' }}>
+          <div className="network-container">
             <ForceGraph2D
               graphData={networkData}
               nodeLabel="name"
-              nodeVal="val"
-              nodeAutoColorBy="color"
+              nodeAutoColorBy="group"
               linkDirectionalParticles={2}
-              linkLabel="label"
             />
           </div>
 
           <h3>Collaboration Ratio (External/Internal): {collaborationRatio.toFixed(2)}</h3>
 
-      <div>
-        <h3>Dashboard</h3>
-        <select onChange={(e) => setChartType(e.target.value)}>
-          <option value="workTypes">Work Types</option>
-          <option value="worksByYear">Works by Year</option>
-          <option value="topAuthors">Top 10 Authors</option>
-          <option value="authorConnections">Top 10 Connected Authors</option>
-        </select>
-        <ResponsiveContainer width="100%" height={400}>
-          {renderChart()}
-        </ResponsiveContainer>
-      </div>
-
-
-
-          <h3>ORCID Data</h3>
+          <h3>Dashboard</h3>
+          <div className="chart-container">
+            <select onChange={(e) => setChartType(e.target.value)} value={chartType}>
+              <option value="workTypes">Work Types</option>
+              <option value="worksByYear">Works by Year</option>
+              <option value="topAuthors">Top Authors</option>
+            </select>
+            <ResponsiveContainer width="100%" height={400}>
+              {renderChart()}
+            </ResponsiveContainer>
+          </div>
+          <EnrichmentReport orcidData={orcidData} />
           <table>
             <thead>
               <tr>
-                <th>ORCID ID</th>
+                <th>ORCID</th>
                 <th>Name</th>
-                <th>Last Updated</th>
-                <th>Employments</th>
-                <th>Educations</th>
                 <th>Works</th>
               </tr>
             </thead>
             <tbody>
-              {orcidData.map(profile => (
-                <tr key={profile.orcid}>
-                  <td>{profile.orcid}</td>
-                  <td>{profile.name}</td>
-                  <td>{profile.lastUpdated}</td>
-                  <td>{profile.employments.join('; ')}</td>
-                  <td>{profile.educations.join('; ')}</td>
+              {orcidData.map(author => (
+                <tr key={author.orcid}>
+                  <td>{author.orcid}</td>
+                  <td>{author.name}</td>
                   <td>
-                    <button onClick={() => setSelectedProfile(profile)}>
-                      {profile.works.length} works
+                    <button onClick={() => setSelectedAuthor(author)}>
+                      View {author.works.length} works
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-
-          <Modal
-            isOpen={!!selectedProfile}
-            onRequestClose={() => setSelectedProfile(null)}
-            contentLabel="Works Details"
-          >
-            {selectedProfile && (
-              <>
-                <h2>{selectedProfile.name}'s Works</h2>
-                <ul>
-                  {selectedProfile.works.map((work, index) => (
-                    <li key={index}>
-                      {work.title} ({work.type}) - {work.year}
-                    </li>
-                  ))}
-                </ul>
-                <button onClick={() => setSelectedProfile(null)}>Close</button>
-              </>
-            )}
-          </Modal>
-
-          {errors.length > 0 && (
-            <div className="error-summary">
-              <h3>Errors Encountered</h3>
-              <p>{errors.length} ORCID profiles could not be retrieved:</p>
-              <ul>
-                {errors.map((error, index) => (
-                  <li key={index}>{error.orcid}: {error.error}</li>
-                ))}
-              </ul>
-            </div>
+          {selectedAuthor && (
+            <AuthorModal
+              author={selectedAuthor}
+              onClose={() => setSelectedAuthor(null)}
+            />
           )}
-        </div>
+        </>
       )}
-    </div>
+
+          <h3>Errors Encountered</h3>
+          <p>{errors.length} ORCID profiles could not be retrieved:</p>
+          <ul>
+            {errors.map((error, index) => (
+              <li key={index}>{error.orcid}: {error.error}</li>
+            ))}
+          </ul>
+        </div>
   );
 }
 
 export default App;
+

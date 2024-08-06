@@ -1,6 +1,6 @@
 /**
  * @fileoverview Main server file for the Enhanced ORCID Institutional Dashboard
- * @author Original: Owen Stephens, Enhancements: [Your Name]
+ * @author Original: Owen Stephens, Enhancements: Adam Vials Moore
  * @requires express
  * @requires node-fetch
  * @requires apicache
@@ -284,19 +284,15 @@ app.get('/api/clear-cache', (req, res) => {
 });
 
 
+
 app.get('/api/export/:format', async (req, res) => {
   try {
-    const data = await getCachedData();
-    if (!data) {
-      return res.status(400).json({ error: 'No cached data available. Please perform a search first.' });
-    }
-
-    const exporter = new Exporter(data.orcidData);
-    
     const { format } = req.params;
-    let result;
-    let contentType;
-    let fileExtension;
+    const { q } = req.query;
+    const data = await getCachedData(q) || await fetchOrcidData(q);
+    
+    const exporter = new Exporter(data);
+    let result, contentType, fileExtension;
 
     switch (format) {
       case 'csv':
@@ -333,9 +329,11 @@ app.get('/api/export/:format', async (req, res) => {
         throw new Error('Unsupported format');
     }
 
+    const timestamp = new Date().toISOString().replace(/[:.-]/g, '');
+    const filename = `orcid_export_${q}_${timestamp}.${fileExtension}`;
 
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename=orcid_data.${fileExtension}`);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
     res.send(result);
   } catch (error) {
     console.error('Export error:', error);
@@ -349,6 +347,14 @@ app.get('/api/export/:format', async (req, res) => {
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'orcid-dashboard-frontend/build', 'index.html'));
 });
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Closing database connection...');
+  await closeDatabase();
+  process.exit(0);
+});
+
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

@@ -1,70 +1,69 @@
-const oaiPmhModule = require('oai-pmh');
-const OAIPMHClient = oaiPmhModule.OAIPMHClient;
+/**
+ * @file dataEnrichment.js
+ * @description Enriches ORCID data with additional information from Crossref and DataCite
+ * @requires node-fetch
+ */
 
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-let fetchImplementation;
-
-if (typeof globalThis.fetch === 'function') {
-  fetchImplementation = globalThis.fetch;
-} else {
-  fetchImplementation = require('node-fetch');
+/**
+ * @function fetchCrossrefData
+ * @async
+ * @param {string} doi - DOI of the work
+ * @returns {Promise<Object>} Crossref metadata
+ */
+async function fetchCrossrefData(doi) {
+  const url = `https://api.crossref.org/works/${doi}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Crossref API responded with ${response.status}`);
+  const data = await response.json();
+  return data.message;
 }
 
-async function enrichWithRepositoryData(profile, repositoryUrl) {
-  if (!repositoryUrl) {
-    console.warn('Repository URL not provided. Skipping repository data enrichment.');
-    return profile;
-  }
+/**
+ * @function fetchDataCiteData
+ * @async
+ * @param {string} doi - DOI of the work
+ * @returns {Promise<Object>} DataCite metadata
+ */
+async function fetchDataCiteData(doi) {
+  const url = `https://api.datacite.org/dois/${doi}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`DataCite API responded with ${response.status}`);
+  const data = await response.json();
+  return data.data.attributes;
+}
 
-  try {
-    const client = new OAIPMHClient(repositoryUrl);
-
-    // Fetch records for the given ORCID
-    const records = await client.listRecords({
-      metadataPrefix: 'oai_dc',
-      from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // Last 30 days
-      set: `orcid:${profile.orcid}` // Assuming the repository supports ORCID sets
-    });
-
-    const repoWorks = [];
-    for await (const record of records) {
-      const metadata = record.metadata['oai_dc:dc'];
-      repoWorks.push({
-        title: metadata['dc:title'][0],
-        type: metadata['dc:type'][0],
-        year: metadata['dc:date'][0].split('-')[0],
-        doi: metadata['dc:identifier'].find(id => id.startsWith('doi:'))?.replace('doi:', '') || null
-      });
+/**
+ * @function enrichOrcidData
+ * @async
+ * @param {Object} orcidProfile - ORCID profile data
+ * @returns {Promise<Object>} Enriched ORCID profile
+ */
+async function enrichOrcidData(orcidProfile) {
+  const enrichedProfile = { ...orcidProfile };
+  enrichedProfile.works = await Promise.all(orcidProfile.works.map(async (work) => {
+    if (work.doi) {
+      try {
+        const crossrefData = await fetchCrossrefData(work.doi);
+        const dataCiteData = await fetchDataCiteData(work.doi);
+        return {
+          ...work,
+          crossrefData,
+          dataCiteData,
+          collaborators: [...new Set([
+            ...(crossrefData.author || []).map(author => author.ORCID),
+            ...(dataCiteData.creators || []).map(creator => creator.nameIdentifiers.find(id => id.nameIdentifierScheme === 'ORCID')?.nameIdentifier)
+          ])].filter(Boolean)
+        };
+      } catch (error) {
+        console.error(`Error enriching work ${work.doi}:`, error);
+        return work;
+      }
     }
-
-    // Merge repository works with ORCID works
-    profile.works = [...(profile.works || []), ...repoWorks.filter(work => 
-      !profile.works?.some(orcidWork => orcidWork.doi === work.doi)
-    )];
-
-    return profile;
-  } catch (error) {
-    console.error(`Error enriching profile with repository data: ${error}`);
-    return profile;
-  }
-}
-
-async function enrichWorkWithDOIMetadata(work) {
-  if (!work.doi) return work;
-
-  try {
-    const response = await fetchImplementation(`https://api.crossref.org/works/${work.doi}`);
-    const metadata = await response.json();
-
-    // Merge metadata with work data
-    return { ...work, ...metadata.message };
-  } catch (error) {
-    console.error(`Error enriching work with DOI metadata: ${error}`);
     return work;
-  }
+  }));
+  return enrichedProfile;
 }
 
-module.exports = {
-  enrichWithRepositoryData,
-  enrichWorkWithDOIMetadata
-};
+module.exports = { enrichOrcidData };

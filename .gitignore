@@ -1,6 +1,8 @@
 # My backups because I'm a shoddy hack dev
 *old*
 
+orcid_cache.sqlite
+
 # Dependency directories
 node_modules/
 jspm_packages/

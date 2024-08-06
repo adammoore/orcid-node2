@@ -1,3 +1,10 @@
+/**
+ * @file Exporter.js
+ * @description Handles data export in various formats
+ * @requires exceljs
+ * @requires pdfkit
+ */
+
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 
@@ -9,7 +16,7 @@ class Exporter {
   async toCSV() {
     let csv = 'ORCID,Name,LastUpdated,Employments,Educations,WorkCount\n';
     this.data.forEach(item => {
-      csv += `${item.orcid || ''},${item.name || ''},${item.lastUpdated || ''},"${(item.employments || []).join('; ')}","${(item.educations || []).join('; ')}",${item.workCount || 0}\n`;
+      csv += `${item.orcid || ''},${item.name || ''},${item.lastUpdated || ''},"${(item.employments || []).join('; ')}","${(item.educations || []).join('; ')}",${item.works ? item.works.length : 0}\n`;
     });
     return csv;
   }
@@ -34,7 +41,7 @@ class Exporter {
         lastUpdated: item.lastUpdated || '',
         employments: (item.employments || []).join('; '),
         educations: (item.educations || []).join('; '),
-        workCount: item.workCount || 0
+        workCount: item.works ? item.works.length : 0
       });
     });
 
@@ -60,7 +67,7 @@ class Exporter {
       doc.text(`Last Updated: ${item.lastUpdated || 'N/A'}`);
       doc.text(`Employments: ${(item.employments || []).join('; ')}`);
       doc.text(`Educations: ${(item.educations || []).join('; ')}`);
-      doc.text(`Work Count: ${item.workCount || 0}`);
+      doc.text(`Work Count: ${item.works ? item.works.length : 0}`);
       doc.moveDown();
     });
 
@@ -76,13 +83,13 @@ class Exporter {
   toBibTeX() {
     let bibtex = '';
     this.data.forEach(profile => {
-      profile.works.forEach(work => {
-        bibtex += `@article{${work.doi || 'unknown'},\n`;
-        bibtex += `  title = {${work.title}},\n`;
+      (profile.works || []).forEach((work, index) => {
+        bibtex += `@article{${profile.name.split(' ').pop().toLowerCase()}${profile.lastUpdated?.slice(0, 4)}${index},\n`;
         bibtex += `  author = {${profile.name}},\n`;
-        bibtex += `  year = {${work.year}},\n`;
-        bibtex += `  journal = {${work.journal || 'Unknown'}},\n`;
-        bibtex += `  doi = {${work.doi || 'Unknown'}}\n`;
+        bibtex += `  title = {${work.title}},\n`;
+        bibtex += `  year = {${work.year || 'N/A'}},\n`;
+        bibtex += `  journal = {${work.journal || 'N/A'}},\n`;
+        bibtex += `  doi = {${work.doi || 'N/A'}}\n`;
         bibtex += '}\n\n';
       });
     });
@@ -92,13 +99,13 @@ class Exporter {
   toRIS() {
     let ris = '';
     this.data.forEach(profile => {
-      profile.works.forEach(work => {
+      (profile.works || []).forEach(work => {
         ris += 'TY  - JOUR\n';
-        ris += `TI  - ${work.title}\n`;
         ris += `AU  - ${profile.name}\n`;
-        ris += `PY  - ${work.year}\n`;
-        ris += `JO  - ${work.journal || 'Unknown'}\n`;
-        ris += `DO  - ${work.doi || 'Unknown'}\n`;
+        ris += `TI  - ${work.title}\n`;
+        ris += `PY  - ${work.year || 'N/A'}\n`;
+        ris += `JO  - ${work.journal || 'N/A'}\n`;
+        ris += `DO  - ${work.doi || 'N/A'}\n`;
         ris += 'ER  - \n\n';
       });
     });
