@@ -5,12 +5,16 @@
  * @license Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { QueryClient, QueryClientProvider, useQuery } from 'react-query';
 import CombinedSearch from './CombinedSearch';
-import InstitutionalDashboard from './InstitutionalDashboard';
+import InstitutionalDashboard from './components/InstitutionalDashboard'; // Update this path
 import AuthorModal from './AuthorModal';
 import EnrichmentReport from './EnrichmentReport';
+import Loading from './Loading';
 import { exportToFile } from './exportUtils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import './App.css';
 
 function App() {
@@ -24,15 +28,16 @@ function App() {
    * Fetches ORCID data based on the provided query
    * @param {string} query - The search query
    */
-  const fetchData = async (query) => {
+  const fetchData = useCallback(async (query) => {
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
       setOrcidData(data);
-      // Extract institution name from the query
       const institutionMatch = query.match(/orgname=([^&]+)/);
       setInstitutionName(institutionMatch ? decodeURIComponent(institutionMatch[1]) : '');
     } catch (e) {
@@ -40,24 +45,29 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   /**
    * Handles the export of data in various formats
    * @param {string} format - The export format (e.g., 'csv', 'json')
    */
-  const handleExport = (format) => {
+  const handleExport = useCallback((format) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `orcid_export_${timestamp}`;
     exportToFile(orcidData, format, filename);
-  };
+  }, [orcidData]);
 
   return (
     <div className="App">
-      <h1>ORCID Institutional Dashboard</h1>
+      <h1 className="text-2xl font-bold mb-4">ORCID Institutional Dashboard</h1>
       <CombinedSearch onSearch={fetchData} />
-      {loading && <div className="loading">Loading<span>.</span><span>.</span><span>.</span></div>}
-      {error && <div className="error-container">Error: {error}</div>}
+      {loading && <Loading message="Fetching ORCID data..." />}
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       {orcidData.length > 0 && (
         <>
           <div className="export-buttons">
