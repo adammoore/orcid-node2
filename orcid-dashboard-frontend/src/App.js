@@ -1,30 +1,22 @@
-/**
- * @file App.js
- * @description Main component for the ORCID Institutional Dashboard
- * @author Adam Vials Moore
- * @license Apache-2.0
- */
-
-import * as React from 'react';
+import React, { useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from 'react-query';
 import CombinedSearch from './CombinedSearch';
 import InstitutionalDashboard from './components/InstitutionalDashboard';
-import AuthorModal from './AuthorModal';
+import AuthorList from './components/AuthorList';
+import WorksList from './components/WorksList';
 import EnrichmentReport from './EnrichmentReport';
 import Loading from './Loading';
 import { exportToFile } from './exportUtils';
-import { Alert, AlertDescription, AlertTitle } from './Alert';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
-import { Card, CardContent, CardHeader, CardTitle } from './Card';
+import { Alert } from './Alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './Tabs';
 import { Button } from './Button';
 import './App.css';
 
-// Create a client for React Query
 const queryClient = new QueryClient();
 
 function AppContent() {
-  const [searchQuery, setSearchQuery] = React.useState('');
-  const [selectedAuthor, setSelectedAuthor] = React.useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAuthor, setSelectedAuthor] = useState(null);
 
   const { data: orcidData, error, isLoading } = useQuery(
     ['orcidData', searchQuery],
@@ -38,79 +30,66 @@ function AppContent() {
     setSearchQuery(query);
   };
 
-  const handleExport = (format) => {
+  const handleExport = useCallback((format) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `orcid_export_${timestamp}`;
     exportToFile(orcidData, format, filename);
-  };
+  }, [orcidData]);
 
   return (
-    <div className="App">
-      <Card>
-        <CardHeader>
-          <CardTitle>ORCID Institutional Dashboard</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CombinedSearch onSearch={handleSearch} />
-          {isLoading && <Loading message="Fetching ORCID data..." />}
-          {error && (
-            <Alert variant="destructive">
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error.message}</AlertDescription>
-            </Alert>
-          )}
-          {orcidData && orcidData.length > 0 && (
-            <>
-              <div className="export-buttons">
-                <TooltipProvider>
-                  {['csv', 'excel', 'json', 'pdf', 'bibtex', 'ris'].map(format => (
-                    <Tooltip key={format}>
-                      <TooltipTrigger asChild>
-                        <Button onClick={() => handleExport(format)} variant="outline" size="sm">
-                          Export {format.toUpperCase()}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Export data in {format.toUpperCase()} format</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
-              </div>
+    <div className="App p-4 max-w-7xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-center">ORCID Institutional Dashboard</h1>
+      <CombinedSearch onSearch={handleSearch} />
+      
+      {isLoading && <Loading message="Fetching ORCID data..." />}
+      
+      {error && (
+        <Alert variant="destructive" className="my-4">
+          <h2>Error</h2>
+          <p>{error.message}</p>
+        </Alert>
+      )}
+      
+      {orcidData && orcidData.length > 0 && (
+        <>
+          <div className="export-buttons my-4 flex flex-wrap gap-2">
+            {['json', 'csv', 'excel', 'pdf'].map(format => (
+              <Button key={format} onClick={() => handleExport(format)} variant="outline" size="sm">
+                Export {format.toUpperCase()}
+              </Button>
+            ))}
+          </div>
+          
+          <Tabs defaultValue="dashboard" className="my-6">
+            <TabsList>
+              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+              <TabsTrigger value="authors">Authors</TabsTrigger>
+              <TabsTrigger value="works">Works</TabsTrigger>
+              <TabsTrigger value="enrichment">Enrichment Report</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="dashboard">
               <InstitutionalDashboard orcidData={orcidData} institutionName={institutionName} />
+            </TabsContent>
+            
+            <TabsContent value="authors">
+              <AuthorList 
+                authors={orcidData} 
+                onAuthorSelect={setSelectedAuthor}
+                selectedAuthor={selectedAuthor}
+              />
+            </TabsContent>
+            
+            <TabsContent value="works">
+              <WorksList works={orcidData.flatMap(author => author.works)} />
+            </TabsContent>
+            
+            <TabsContent value="enrichment">
               <EnrichmentReport orcidData={orcidData} />
-              <table className="w-full mt-4">
-                <thead>
-                  <tr>
-                    <th className="text-left">ORCID</th>
-                    <th className="text-left">Name</th>
-                    <th className="text-left">Works</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orcidData.map(author => (
-                    <tr key={author.orcid}>
-                      <td>{author.orcid}</td>
-                      <td>{author.name}</td>
-                      <td>
-                        <Button onClick={() => setSelectedAuthor(author)} variant="link">
-                          View {author.works.length} works
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {selectedAuthor && (
-                <AuthorModal
-                  author={selectedAuthor}
-                  onClose={() => setSelectedAuthor(null)}
-                />
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   );
 }
