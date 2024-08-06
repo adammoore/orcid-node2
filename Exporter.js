@@ -1,8 +1,8 @@
 /**
  * @file Exporter.js
  * @description Handles data export in various formats
- * @requires exceljs
- * @requires pdfkit
+ * @author Adam Vials Moore
+ * @license Apache-2.0
  */
 
 const ExcelJS = require('exceljs');
@@ -13,14 +13,24 @@ class Exporter {
     this.data = data;
   }
 
+  /**
+   * @method toCSV
+   * @description Converts data to CSV format
+   * @returns {string} CSV formatted string
+   */
   async toCSV() {
     let csv = 'ORCID,Name,LastUpdated,Employments,Educations,WorkCount\n';
     this.data.forEach(item => {
-      csv += `${item.orcid || ''},${item.name || ''},${item.lastUpdated || ''},"${(item.employments || []).join('; ')}","${(item.educations || []).join('; ')}",${item.works ? item.works.length : 0}\n`;
+      csv += `"${item.orcid || ''}","${item.name || ''}","${item.lastUpdated || ''}","${(item.employments || []).join('; ')}","${(item.educations || []).join('; ')}","${item.works ? item.works.length : 0}"\n`;
     });
     return csv;
   }
 
+  /**
+   * @method toExcel
+   * @description Converts data to Excel format
+   * @returns {Buffer} Excel file buffer
+   */
   async toExcel() {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('ORCID Data');
@@ -48,10 +58,20 @@ class Exporter {
     return await workbook.xlsx.writeBuffer();
   }
 
+  /**
+   * @method toJSON
+   * @description Converts data to JSON format
+   * @returns {string} JSON formatted string
+   */
   toJSON() {
     return JSON.stringify(this.data, null, 2);
   }
 
+  /**
+   * @method toPDF
+   * @description Converts data to PDF format
+   * @returns {Buffer} PDF file buffer
+   */
   async toPDF() {
     const doc = new PDFDocument();
     let buffers = [];
@@ -80,37 +100,49 @@ class Exporter {
     });
   }
 
+  /**
+   * @method toBibTeX
+   * @description Converts data to BibTeX format
+   * @returns {string} BibTeX formatted string
+   */
   toBibTeX() {
     let bibtex = '';
     this.data.forEach(profile => {
       (profile.works || []).forEach((work, index) => {
-        bibtex += `@article{${profile.name.split(' ').pop().toLowerCase()}${profile.lastUpdated?.slice(0, 4)}${index},\n`;
-        bibtex += `  author = {${profile.name}},\n`;
-        bibtex += `  title = {${work.title}},\n`;
-        bibtex += `  year = {${work.year || 'N/A'}},\n`;
-        bibtex += `  journal = {${work.journal || 'N/A'}},\n`;
-        bibtex += `  doi = {${work.doi || 'N/A'}}\n`;
+        const key = `${profile.name.split(' ').pop().toLowerCase()}${profile.lastUpdated?.slice(0, 4)}${index}`;
+        bibtex += `@article{${key},\n`;
+        bibtex += `  author = {${profile.name || 'Unknown'}},\n`;
+        bibtex += `  title = {${work.title || 'Unknown'}},\n`;
+        bibtex += `  year = {${work.year || 'Unknown'}},\n`;
+        bibtex += `  journal = {${work.journal || 'Unknown'}},\n`;
+        bibtex += `  doi = {${work.doi || 'Unknown'}}\n`;
         bibtex += '}\n\n';
       });
     });
     return bibtex;
   }
 
+  /**
+   * @method toRIS
+   * @description Converts data to RIS format
+   * @returns {string} RIS formatted string
+   */
   toRIS() {
     let ris = '';
     this.data.forEach(profile => {
       (profile.works || []).forEach(work => {
         ris += 'TY  - JOUR\n';
-        ris += `AU  - ${profile.name}\n`;
-        ris += `TI  - ${work.title}\n`;
-        ris += `PY  - ${work.year || 'N/A'}\n`;
-        ris += `JO  - ${work.journal || 'N/A'}\n`;
-        ris += `DO  - ${work.doi || 'N/A'}\n`;
+        ris += `AU  - ${profile.name || 'Unknown'}\n`;
+        ris += `TI  - ${work.title || 'Unknown'}\n`;
+        ris += `PY  - ${work.year || 'Unknown'}\n`;
+        ris += `JO  - ${work.journal || 'Unknown'}\n`;
+        ris += `DO  - ${work.doi || 'Unknown'}\n`;
         ris += 'ER  - \n\n';
       });
     });
     return ris;
-  }
-}
-
+  }     
+}       
+        
 module.exports = Exporter;
+
