@@ -1,0 +1,13 @@
+diff --git a/node_modules/aframe-extras/package.json b/node_modules/aframe-extras/package.json
+index 0000000..0000000 100644
+--- a/node_modules/aframe-extras/package.json
++++ b/node_modules/aframe-extras/package.json
+@@ -6,7 +6,7 @@
+   "license": "MIT",
+   "main": "index.js",
+   "exports": {
+-    ".": "index.js",
++    ".": "./index.js",
+     "./controls/*": "./src/controls/*",
+     "./loaders/*": "./src/loaders/*",
+     "./misc/*": "./src/misc/*",

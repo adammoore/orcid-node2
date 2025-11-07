@@ -1,0 +1,32 @@
+{
+  "name": "ORCID Institutional Dashboard",
+  "description": "Enhanced ORCID Institutional Dashboard for visualizing and analyzing institutional research data",
+  "repository": "https://github.com/your-username/orcid-node2",
+  "keywords": [
+    "orcid",
+    "research",
+    "dashboard",
+    "analytics"
+  ],
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "env": {
+    "NODE_ENV": {
+      "description": "Node environment",
+      "value": "production"
+    },
+    "ORCID_API_URL": {
+      "description": "ORCID API endpoint URL",
+      "value": "https://pub.orcid.org/v3.0"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  }
+}

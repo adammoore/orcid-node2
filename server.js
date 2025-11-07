@@ -157,7 +157,23 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'orcid-dashboard-frontend/build', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Graceful shutdown handler for Heroku
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    db.close((err) => {
+      if (err) {
+        console.error('Error closing database', err);
+        process.exit(1);
+      }
+      console.log('Database connection closed');
+      process.exit(0);
+    });
+  });
+});
 
 /**
  * Cache ORCID data in SQLite database

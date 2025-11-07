@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "heroku-postbuild": "cd orcid-dashboard-frontend && npm install && npm run build"
   },
   "author": "Owen Stephens, Adam Vials Moore",
   "license": "Apache 2.0",
@@ -26,6 +27,7 @@
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": "18.x",
+    "npm": "9.x"
   }
 }

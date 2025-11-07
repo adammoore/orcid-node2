@@ -63,6 +63,46 @@ The application exposes the following API endpoints:
 
 For detailed API documentation, please refer to the [API.md](./API.md) file.
 
+## Deployment
+
+### Deploying to Heroku
+
+This application is ready for deployment on Heroku. Follow these steps:
+
+1. Create a new Heroku app:
+   ```bash
+   heroku create your-app-name
+   ```
+
+2. Set environment variables:
+   ```bash
+   heroku config:set NODE_ENV=production
+   heroku config:set ORCID_API_URL=https://pub.orcid.org/v3.0
+   ```
+
+3. Deploy the application:
+   ```bash
+   git push heroku main
+   ```
+
+4. Open the application:
+   ```bash
+   heroku open
+   ```
+
+**Important Notes:**
+- The frontend is automatically built during deployment via the `heroku-postbuild` script
+- SQLite is used for caching and will reset on dyno restarts (this is acceptable for cache data)
+- The application uses graceful shutdown to handle Heroku's dyno cycling
+- Logs can be viewed with `heroku logs --tail`
+
+### Environment Variables
+
+Required environment variables (see `.env.example`):
+- `PORT` - Set automatically by Heroku
+- `ORCID_API_URL` - ORCID API endpoint (default: https://pub.orcid.org/v3.0)
+- `NODE_ENV` - Environment mode (production recommended for Heroku)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
